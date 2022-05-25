@@ -73,6 +73,7 @@ def medpc_read (file, working_var_label='', rat_id=None, save=True, skipold = Tr
                 with open(MSN, 'r') as f:
                     for n, line in enumerate(f):
                         if 'DIM' in line:
+                            #THIS means that you can't have 'DIM' or 'LIST' in any comments
                             pat = re.compile(r'(DIM\s*)(\w)([\s=\d]*)([\s\\]*)(\w*\s*\w*)(\s+)([\w\(\)]*)')
                             var, name = pat.search(line).group(2), pat.search(line).group(5)
                             if var != working_var_label: 
@@ -208,7 +209,7 @@ def medpc_read (file, working_var_label='', rat_id=None, save=True, skipold = Tr
                             if len(overlap)> 0: # replace existing data and concat new data into files
                                 
                                 book = load_workbook(filename)
-                                writer = pd.ExcelWriter(filename, engine = 'openpyxl', mode= 'a')
+                                writer = pd.ExcelWriter(filename, engine = 'openpyxl', mode= 'a',  if_sheet_exists='replace')
                                 writer.book = book
                                 MSNs_file = pd.read_excel(filename,sheet_name = 'MSNs')
                                 MSNs_file['ID'] = MSNs_file['ID'].astype('str')
@@ -276,7 +277,7 @@ def medpc_read (file, working_var_label='', rat_id=None, save=True, skipold = Tr
                                     
                                 if not MSN_same or not summary_same: #if two MSNs summary are not the same append current one to the file one
                                     book = load_workbook(filename)
-                                    writer = pd.ExcelWriter(filename, engine = 'openpyxl', mode= 'a')
+                                    writer = pd.ExcelWriter(filename, engine = 'openpyxl', mode= 'a', if_sheet_exists='replace')
                                     writer.book = book
                                     
                                     if not MSN_same:
@@ -294,7 +295,7 @@ def medpc_read (file, working_var_label='', rat_id=None, save=True, skipold = Tr
                                         writer.save()
                                         writer.close()
                                         
-                                with pd.ExcelWriter(filename, mode = 'a', engine='openpyxl') as writer: # pylint: disable=abstract-class-instantiated
+                                with pd.ExcelWriter(filename, mode = 'a', engine='openpyxl',  if_sheet_exists='replace') as writer: # pylint: disable=abstract-class-instantiated
                                     for sheet in new:
                                         TS_df_dict[sheet].to_excel(writer, sheet_name = sheet, index=False) 
                                     log += nowtime+'>>\t'+'No overlap. Append new MED-PC data to an existing local excel file %s.'%filename +'\n'
@@ -328,7 +329,7 @@ def medpc_read (file, working_var_label='', rat_id=None, save=True, skipold = Tr
                                     
                                 if not MSN_same or not summary_same: #if two MSNs summary are not the same append current one to the file one
                                     book = load_workbook(filename)
-                                    writer = pd.ExcelWriter(filename, engine = 'openpyxl', mode='a')
+                                    writer = pd.ExcelWriter(filename, engine = 'openpyxl', mode='a', if_sheet_exists='replace')
                                     writer.book = book
                                     
                                     if not MSN_same:
@@ -346,14 +347,14 @@ def medpc_read (file, working_var_label='', rat_id=None, save=True, skipold = Tr
                                         writer.save()
                                         writer.close()
                                         
-                                with pd.ExcelWriter(filename, mode = 'a', engine='openpyxl') as writer: # pylint: disable=abstract-class-instantiated
+                                with pd.ExcelWriter(filename, mode = 'a', engine='openpyxl',  if_sheet_exists='replace') as writer: # pylint: disable=abstract-class-instantiated
                                     for sheet in new:
                                         TS_df_dict[sheet].to_excel(writer, sheet_name = sheet, index=False) 
                                     log += nowtime+'>>\t'+'Append new MED-PC data to an existing local excel file %s. Old data was not changed.'%filename +'\n'
                             
             else: # file doesn't exist
                 with pd.ExcelWriter(filename, engine='openpyxl', mode='w') as writer: # pylint: disable=abstract-class-instantiated
-                    MSN_dict[d].to_excel(writer,sheet_name='MSNs',index=False)
+                    MSN_dict[d].to_excel(writer,sheet_name='MSNs',index=False) #TODO error here if two different MSNs on same date... possibly pandas 1.3 problem https://stackoverflow.com/questions/68759330/python-appending-dataframe-to-exsiting-excel-file-and-sheet
                     if working_var_label !='':
                         workingVar_dfs[d].to_excel(writer, sheet_name='Summary_(%s)'%working_var_label, index = True)
                     for sheet, df in TS_df_dict.items():
