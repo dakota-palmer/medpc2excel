@@ -135,3 +135,4 @@ func_out = ''
 for n, f in enumerate(datafile_list):    
     _, func_out = medpc_read(f, working_var_label, skipold = skipexist, override = replace_file, replace = replace_data, log = func_out) #pass TS_df_tree to an anonymous variable
     print(n,f)
+    print('log: '+func_out)

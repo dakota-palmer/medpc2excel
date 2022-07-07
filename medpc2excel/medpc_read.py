@@ -11,10 +11,11 @@ def medpc_read (file, working_var_label='', rat_id=None, save=True, skipold = Tr
     '''
     Inputs:
     1. file (str, path)
-    2. rat_id   (array like)
-    3. save (Bolean value,default is True)
-    4. override (Bolean value, default is True)
-    5. replace  (Bolean value, default is True)
+    2. working_var_label (str, default is '')
+    3. rat_id   (array like)
+    4. save (Bolean value,default is True)
+    5. override (Bolean value, default is True)
+    6. replace  (Bolean value, default is True)
     
     Outputs:
     1. TS_df_tree (a tree, like {'date':{'rat':df}})
@@ -29,7 +30,7 @@ def medpc_read (file, working_var_label='', rat_id=None, save=True, skipold = Tr
     MSN_dict={}
     nowtime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    progamnames = []
+    progamnames = [] #programnames = will be a list of MPC 'programs' (compiled in loop through datasets)
     
     #################################
     #load raw file into dict
@@ -66,35 +67,20 @@ def medpc_read (file, working_var_label='', rat_id=None, save=True, skipold = Tr
             
             #recognize all defined variable name in MSN protocol
             MSN_folder = os.path.dirname(file)
-            MSN = os.path.join(MSN_folder, programname+'.MPC')
+            MSN = os.path.join(MSN_folder, programname+'.MPC') #find the MPC matching that listed in this data file (theData)  
             try:
                 TS_var_name_map = {}
                 arrayA_name_map = {}
                 with open(MSN, 'r') as f:
                     for n, line in enumerate(f):
                         if 'DIM' in line:
-                            #THIS means that you can't have 'DIM' or 'LIST' in any comments
                             pat = re.compile(r'(DIM\s*)(\w)([\s=\d]*)([\s\\]*)(\w*\s*\w*)(\s+)([\w\(\)]*)')
                             var, name = pat.search(line).group(2), pat.search(line).group(5)
                             if var != working_var_label: 
                                 if name != '':
                                     name = re.sub('[\s]*', '', name)
-                                    TS_var_name_map[var] = "(%s)"%var+name #'map' of vars with corresponding label
-                                    TS_var_name_maps[programname] = TS_var_name_map
-                                    
-                        elif 'LIST' in line: #in addition to Arrays (DIM), may also have Lists (LIST)
-                            pat = re.compile(r'(LIST\s*)(\w)([\s=\d]*)([\s\\]*)(\w*\s*\w*)(\s+)([\w\(\)]*)')
-                            # var, name = pat.search(line).group(2) pat.search(line).group(4)
-                            #dp unfamiliar with regex, var will still match group(2) but just using string.find() to get name
-                            var= pat.search(line).group(2)
-                            name= line[line.find('\\')+1:-1] #find the \ denoting label start and go to end 
-                        
-                            if var != working_var_label: 
-                                if name != '':
-                                    name = re.sub('[\s]*', '', name)
                                     TS_var_name_map[var] = "(%s)"%var+name
                                     TS_var_name_maps[programname] = TS_var_name_map
-                                    
                         elif working_var_label != '':
                             if re.match(r'\s*\\\s*%s\(\d*\)'%working_var_label, line):
                                 pat = re.compile(r'(\s*\\\s*)(%s\()(\d*)(\))\W*([\w\s\(\)]*)([\w\s\(\),\/]*)'%working_var_label) 
@@ -108,8 +94,8 @@ def medpc_read (file, working_var_label='', rat_id=None, save=True, skipold = Tr
             varnameLists =  [line for line in variables if not re.search('\w:\s+', line) and line != '']
             #find common variable names between MSN protocol and datafile
             common_vars = [var.strip(":") for var in varnameLists if var.strip(":") in TS_var_name_map.keys()]
-            #assume array A is alwasy store working variables
-            common_vars += ['A']
+            # #assume array A is alwasy store working variables
+            # common_vars += ['A'] # remove this line cannot assume there is always A array inside the file
             common_vars.sort()  #sort the common variables to make sure they are in order
             data_dict = {}
             
@@ -131,7 +117,8 @@ def medpc_read (file, working_var_label='', rat_id=None, save=True, skipold = Tr
                 data_dict[var.strip(':')] =  pd.to_numeric(pd.Series(temp, name = var.strip(':'),dtype = float))
             alldata_tree[programname][thisDate][subject] = data_dict
           
-            if thisDate not in MSN_dict.keys():
+            #temporary metadata for this file in MSN_dict? to be compared and collated across all files in MSN_file?
+            if thisDate not in MSN_dict.keys(): 
                 MSN_dict[thisDate] = pd.DataFrame({'ID':[subject],'Box':[box],'MSN':[programname]})
             else:
                 MSN_dict[thisDate] = MSN_dict[thisDate].append({'ID':subject,'Box':box,'MSN':programname},ignore_index=True)
@@ -191,7 +178,14 @@ def medpc_read (file, working_var_label='', rat_id=None, save=True, skipold = Tr
                 if not skipold: # use doesn't want to skip the old file 
                     #first exame whether it contains the subject above
                     x1 = pd.ExcelFile(filename)
-                    overlap = list(set(x1.sheet_names) & set(TS_df_dict.keys()))
+                    
+                    #below reads only single msn sheet as df and throws error 
+                    # x1 = pd.read_excel(filename, engine='openpyxl') #dp 2022-07-01 update for newer pandas
+                    # x1 = pd.read_excel(filename)#, engine='openpyxl') #dp 2022-07-01 update
+                    # x1 = pd.read_csv(filename) #dp 2022-07-01 update
+
+                    #look for this current file subj sheet in xlsx
+                    overlap = list(set(x1.sheet_names) & set(TS_df_dict.keys())) #search for existing sheet for this subject?
                     
                     # If user want to complete overide the old file into a new one
                     if override:
@@ -209,7 +203,9 @@ def medpc_read (file, working_var_label='', rat_id=None, save=True, skipold = Tr
                             if len(overlap)> 0: # replace existing data and concat new data into files
                                 
                                 book = load_workbook(filename)
-                                writer = pd.ExcelWriter(filename, engine = 'openpyxl', mode= 'a',  if_sheet_exists='replace')
+                                writer = pd.ExcelWriter(filename, engine = 'openpyxl')
+                                # writer = pd.ExcelWriter(filename, mode='a', engine = 'openpyxl') #dp 2022-07-01 need mode='a' ?
+
                                 writer.book = book
                                 MSNs_file = pd.read_excel(filename,sheet_name = 'MSNs')
                                 MSNs_file['ID'] = MSNs_file['ID'].astype('str')
@@ -254,7 +250,8 @@ def medpc_read (file, working_var_label='', rat_id=None, save=True, skipold = Tr
                             else: # no overlap, then append new data to the existing file
                                 new = list(set(TS_df_dict.keys())^set(overlap))
                                 MSNs_file = pd.read_excel(filename,sheet_name = 'MSNs')
-                                if MSNs_file.values.shape == MSN_dict[d].values.shape:
+                                
+                                if MSNs_file.values.shape == MSN_dict[d].values.shape: #dp- compare the MSN_dict metadata values with those saved thus far in the .xlsx
                                     if np.prod(np.equal(MSNs_file.astype(str).values,MSN_dict[d].astype(str).values)):
                                         MSN_same = True
                                     else:
@@ -275,12 +272,15 @@ def medpc_read (file, working_var_label='', rat_id=None, save=True, skipold = Tr
                                     else:
                                         summary_same = False
                                     
-                                if not MSN_same or not summary_same: #if two MSNs summary are not the same append current one to the file one
+                                if not MSN_same or not summary_same: 
                                     book = load_workbook(filename)
-                                    writer = pd.ExcelWriter(filename, engine = 'openpyxl', mode= 'a', if_sheet_exists='replace')
+                                    # writer = pd.ExcelWriter(filename, engine = 'openpyxl') #dp 2022-07-01 should have mode='a'?
+                                    writer = pd.ExcelWriter(filename, mode='a', engine = 'openpyxl') #dp 2022-07-01 should have mode='a'?
+
                                     writer.book = book
                                     
                                     if not MSN_same:
+                                        #this corrupts the excel file dp
                                         writer.sheets = {ws.title: ws for ws in book.worksheets if ws.title=='MSNs'} #get MSNs sheet from existing excel
                                         MSN_dict[d].to_excel(writer, sheet_name = 'MSNs', startrow = writer.sheets['MSNs'].max_row, header = None, index= False)
                                     
@@ -295,7 +295,7 @@ def medpc_read (file, working_var_label='', rat_id=None, save=True, skipold = Tr
                                         writer.save()
                                         writer.close()
                                         
-                                with pd.ExcelWriter(filename, mode = 'a', engine='openpyxl',  if_sheet_exists='replace') as writer: # pylint: disable=abstract-class-instantiated
+                                with pd.ExcelWriter(filename, mode = 'a', engine='openpyxl') as writer: # pylint: disable=abstract-class-instantiated
                                     for sheet in new:
                                         TS_df_dict[sheet].to_excel(writer, sheet_name = sheet, index=False) 
                                     log += nowtime+'>>\t'+'No overlap. Append new MED-PC data to an existing local excel file %s.'%filename +'\n'
@@ -304,38 +304,79 @@ def medpc_read (file, working_var_label='', rat_id=None, save=True, skipold = Tr
                         else: # Use don't want to replace, then append new data into old file
                             #else, append new subject into this excel
                             new = list(set(TS_df_dict.keys())^set(overlap))
-                            if len(new) > 0:
-                                MSNs_file = pd.read_excel(filename,sheet_name = 'MSNs')
-                                if MSNs_file.values.shape == MSN_dict[d].values.shape:
-                                    if np.prod(np.equal(MSNs_file.astype(str).values,MSN_dict[d].astype(str).values)):
-                                        MSN_same = True
-                                    else:
-                                        MSN_same = False
-                                else:    
-                                    MSN_same = False
-                                
-                                if working_var_label !='':
-                                    summary_file = pd.read_excel(filename, sheet_name = 'Summary_(%s)'%working_var_label)
-                                    if summary_file.values.shape == workingVar_dfs[d].values.shape:
-                                        if np.prod(np.equal(summary_file.astype(str).values, workingVar_dfs[d].astype(str).values)):
-                                            if list(summary_file.columns) == list(workingVar_dfs[d].columns):
-                                                summary_same = True
-                                            else:
-                                                summary_same = False
+                            #dp 2022-07-01 why exclude with this conditional?
+                            #-----tru but code isnt running in debugger
+                            # it is running once this if is commented out...
+                            # if len(new) > 0: 
+                            MSNs_file = pd.read_excel(filename,sheet_name = 'MSNs')
+                            #first check if shape of msn same, then values (maybe just trying to be efficient?)
+                            if MSNs_file.values.shape == MSN_dict[d].values.shape: #dp if two MSNs summary are not the same append current one to the file one
+                                if np.prod(np.equal(MSNs_file.astype(str).values,MSN_dict[d].astype(str).values)):
+                                    MSN_same = True
+                                else:
+                                    MSN_same = False #makes it here without if()
+                            else:    
+                                MSN_same = False
+                            #-----was wrapped in above conditional on len(new)--
+                            
+                            #dp add summary_same definition even if working_var_label is blank
+                            if working_var_label == '':
+                                summary_same= False
+                            
+                            if working_var_label !='':
+                                summary_file = pd.read_excel(filename, sheet_name = 'Summary_(%s)'%working_var_label)
+                                if summary_file.values.shape == workingVar_dfs[d].values.shape:
+                                    if np.prod(np.equal(summary_file.astype(str).values, workingVar_dfs[d].astype(str).values)):
+                                        if list(summary_file.columns) == list(workingVar_dfs[d].columns):
+                                            summary_same = True
                                         else:
                                             summary_same = False
                                     else:
                                         summary_same = False
+                                else:
+                                    summary_same = False
                                     
-                                if not MSN_same or not summary_same: #if two MSNs summary are not the same append current one to the file one
-                                    book = load_workbook(filename)
-                                    writer = pd.ExcelWriter(filename, engine = 'openpyxl', mode='a', if_sheet_exists='replace')
-                                    writer.book = book
+                                #dp unindent 1 level
+                                #DP THIS shouldnt be running in above if()? should run if working_var_label is blank too
+                                #dp this should be running on 7/7/22 test append
+                            if not MSN_same or not summary_same: #if two MSNs summary are not the same append current one to the file one
+                                book = load_workbook(filename)
+                                # writer = pd.ExcelWriter(filename, engine = 'openpyxl') #2022-07-01 dp add mode='a'
+                                # writer = pd.ExcelWriter(filename, mode='a', engine = 'openpyxl') #2022-07-01 dp add mode='a'
+                                #try add if_sheet_exists
+                                writer = pd.ExcelWriter(filename, mode='a', engine = 'openpyxl', if_sheet_exists='overlay') #2022-07-01 dp add mode='a'
+                                #overlay should allow extending of MSN sheet?
+                                # overlay mode didn't work, just going to overwrite?
+                                # writer = pd.ExcelWriter(filename, mode='a', engine = 'openpyxl', if_sheet_exists='replace') #2022-07-01 dp add mode='a'
+
+                                
+                                #dp 2022-07-01 this corrupts xlsx without mode='a'?
+                                writer.book = book
+                                
+                                if not MSN_same:
+                                    writer.sheets = {ws.title: ws for ws in book.worksheets if ws.title=='MSNs'} #get MSNs sheet from existing excel
                                     
-                                    if not MSN_same:
-                                        writer.sheets = {ws.title: ws for ws in book.worksheets if ws.title=='MSNs'} #get MSNs sheet from existing excel
-                                        MSN_dict[d].to_excel(writer, sheet_name = 'MSNs', startrow = writer.sheets['MSNs'].max_row, header = None, index= False)
+                                    #dp 2022-07-01 seems this is where the MSN sheet should be growing 
+                                    # MSN_dict[d].to_excel(writer, sheet_name = 'MSNs', startrow = writer.sheets['MSNs'].max_row, header = None, index= False)
+                                    # *** ValueError: Sheet 'MSNs' already exists and if_sheet_exists is set to 'error'.                     
                                     
+                                    #trying with diff arguments
+                                    # MSN_dict[d].to_excel(writer, sheet_name = 'MSNs', header = None, index= False)
+                                   
+                                    # MSN_dict[d].to_excel(writer, sheet_name = 'MSNs', index= False)
+
+                                    
+                                    #dp could try appending as df and then overwriting old sheet?
+                                    MSNs_all= pd.concat([MSNs_file, MSN_dict[d]])
+                                    
+                                    # MSNs_all.to_excel(writer, sheet_name = 'MSNs', startrow = writer.sheets['MSNs'].max_row, header = None, index= False)
+                                    # MSNs_all.to_excel(writer, sheet_name = 'MSNs', header = None, index= False)
+                                    # MSNs_all.to_excel(writer, sheet_name = 'MSNs', index= False)
+
+                                    #try with writer like below- THIS WORKS!
+                                    with pd.ExcelWriter(filename, mode='a', engine = 'openpyxl', if_sheet_exists='overlay') as writer:
+                                        MSN_dict[d].to_excel(writer, sheet_name = 'MSNs', startrow = writer.sheets['MSNs'].max_row, header = None, index= False)        
+                                        
                                     if working_var_label !='':
                                         if not summary_same:
                                             # creat a new file and replace the old one
@@ -347,14 +388,18 @@ def medpc_read (file, working_var_label='', rat_id=None, save=True, skipold = Tr
                                         writer.save()
                                         writer.close()
                                         
-                                with pd.ExcelWriter(filename, mode = 'a', engine='openpyxl',  if_sheet_exists='replace') as writer: # pylint: disable=abstract-class-instantiated
+                                        #dp 7/7/22 this works if run tho isnt running
+                                # with pd.ExcelWriter(filename, mode = 'a', engine='openpyxl') as writer: # pylint: disable=abstract-class-instantiated
+                                with pd.ExcelWriter(filename, mode = 'a', engine='openpyxl', if_sheet_exists='overlay') as writer: # pylint: disable=abstract-class-instantiated
                                     for sheet in new:
                                         TS_df_dict[sheet].to_excel(writer, sheet_name = sheet, index=False) 
                                     log += nowtime+'>>\t'+'Append new MED-PC data to an existing local excel file %s. Old data was not changed.'%filename +'\n'
                             
             else: # file doesn't exist
-                with pd.ExcelWriter(filename, engine='openpyxl', mode='w') as writer: # pylint: disable=abstract-class-instantiated
-                    MSN_dict[d].to_excel(writer,sheet_name='MSNs',index=False) #TODO error here if two different MSNs on same date... possibly pandas 1.3 problem https://stackoverflow.com/questions/68759330/python-appending-dataframe-to-exsiting-excel-file-and-sheet
+                with pd.ExcelWriter(filename, engine='openpyxl') as writer: # pylint: disable=abstract-class-instantiated
+                #mode a wont work if file not exist
+                # with pd.ExcelWriter(filename, mode='a', engine='openpyxl') as writer: # pylint: disable=abstract-class-instantiated
+                    MSN_dict[d].to_excel(writer,sheet_name='MSNs',index=False)
                     if working_var_label !='':
                         workingVar_dfs[d].to_excel(writer, sheet_name='Summary_(%s)'%working_var_label, index = True)
                     for sheet, df in TS_df_dict.items():
